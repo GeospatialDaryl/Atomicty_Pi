@@ -6,6 +6,8 @@ ARMBIAN_BUILD_DIR="${ARMBIAN_BUILD_DIR:-$HOME/src/armbian-build}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUR_UP="${PROJECT_DIR}/armbian/userpatches"
 ARMBIAN_UP="${ARMBIAN_BUILD_DIR}/userpatches"
+BOARD_CONF="${PROJECT_DIR}/armbian/atomic-pi.conf"
+ARMBIAN_BOARDS="${ARMBIAN_BUILD_DIR}/config/boards"
 
 if [[ ! -d "$ARMBIAN_BUILD_DIR" ]]; then
     echo "Cloning Armbian build framework to ${ARMBIAN_BUILD_DIR}..."
@@ -20,6 +22,10 @@ for item in "$OUR_UP"/*; do
     ln -sf "$item" "$ARMBIAN_UP/$(basename "$item")"
 done
 echo "Userpatches symlinked: ${ARMBIAN_UP}"
+
+# Install board config so Atomic Pi appears in ./compile.sh menu.
+ln -sf "$BOARD_CONF" "${ARMBIAN_BOARDS}/atomic-pi.conf"
+echo "Board config installed: ${ARMBIAN_BOARDS}/atomic-pi.conf"
 
 cd "$ARMBIAN_BUILD_DIR"
 
