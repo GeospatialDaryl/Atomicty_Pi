@@ -1,15 +1,8 @@
-.venv/
-venv/
-__pycache__/
-*.pyc
-.env
-.env.*
-*.log
-.DS_Store
-.idea/
-.vscode/
+# SQLite artifacts
+*.db
+*.sqlite
+*.sqlite3
 
-# Build artifacts
-*.img
-/tmp/atomicpi-build/
-
+# Local data dir artifacts
+data/
+!data/.gitkeep
