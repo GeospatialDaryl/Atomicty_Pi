@@ -7,9 +7,13 @@
 
 ---
 
-## Status: Scaffolded v2 — Not Yet Run
+## Status: First Image Built ✓
 
-All scripts and configuration files written. No build executed yet.
+**First successful image:** `Armbian-unofficial_26.05.0-trunk_Atomic-pi_trixie_current_6.18.32_xfce_desktop.img`  
+**Size:** 8.68 GiB | **Kernel:** 6.18.32-current-x86 | **Build time:** 1:44 min (cached)  
+**Location:** `~/src/armbian-build/output/images/`
+
+All customize-image.sh steps passed: overlay applied, XMOS/mic/firstboot services enabled, SSH hardened. Ready to flash and test.
 
 ---
 
@@ -131,10 +135,15 @@ asound.conf: pcm.!default → hw:XMOS,0
 ## Stage Run Log
 
 ### Stage 1: Armbian base build
-*Not yet run.*
+**Complete.** Kernel 6.18.32-current-x86 built and cached. Rootfs assembled with Debian Trixie + Armbian packages. `armbian-bsp-cli-atomic-pi-current-grub` package generated — confirms `BOARD=atomic-pi` board config was recognized.
 
 ### Stage 2: customize-image.sh
-*Not yet run.*
+**Complete.** All steps passed:
+1. Overlay rsynced to image root ✓
+2. Permissions set ✓
+3. Services enabled: atomicpi-hold-xmos, atomicpi-hold-mic, atomicpi-firstboot ✓
+4. SSH hardened (PasswordAuthentication no) ✓
+5. DKMS skipped — no headers in desktop profile (expected) ✓
 
 ### Stage 3: Flash and test
 *Not yet run.*
@@ -148,6 +157,24 @@ asound.conf: pcm.!default → hw:XMOS,0
 ---
 
 ## Issues Found
+
+### ISSUE-003: DKMS fails in non-dev profiles — resolved
+
+**Symptom:** DKMS build errors out because kernel headers are not installed (`INSTALL_HEADERS=no`).
+
+**Fix:** Guard in `customize-image.sh`: skip DKMS section if `/lib/modules/${KVER}/build` does not exist. DKMS builds only in the dev profile.
+
+---
+
+### ISSUE-002: `$RELEASE` unbound in customize-image.sh — resolved
+
+**Symptom:** `customize-image.sh: line 12: RELEASE: unbound variable` under `set -euo pipefail`.
+
+**Root cause:** Armbian calls `customize-image.sh` with positional args (`$1`=RELEASE, `$2`=LINUXFAMILY, `$3`=BOARD, `$4`=BUILD_DESKTOP, `$5`=ARCH), not environment variables.
+
+**Fix:** Added `RELEASE=${1:-}` etc. at the top of the script to unpack positional args.
+
+---
 
 ### ISSUE-001: USERPATCHES_PATH cmdline arg silently overridden — resolved
 

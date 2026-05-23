@@ -1,8 +1,8 @@
 {
   "build_attempt": 1,
   "started": "2026-05-22T21:30:00-05:00",
-  "status": "scaffolded_v2",
-  "host": "pending-first-run",
+  "status": "first_image_built",
+  "host": "Conrad (WSL2 Ubuntu 24.04, kernel 6.6.114.1-microsoft-standard-WSL2)",
   "target": {
     "board": "Atomic Pi",
     "cpu": "Intel Atom x5-Z8350 (x86-64)",
@@ -13,16 +13,18 @@
   },
   "build_approach": {
     "backend": "Armbian",
-    "base_board": "uefi-x86",
-    "layer": "userpatches profile (no fork)",
+    "base_board": "atomic-pi (board config added to config/boards/atomic-pi.conf)",
+    "boardfamily": "uefi-x86",
+    "layer": "userpatches profile + named board config",
     "userpatches_path": "armbian/userpatches/",
-    "compile_example": "./compile.sh build USERPATCHES_PATH=<repo>/armbian/userpatches atomicpi-minimal",
+    "board_conf": "armbian/atomic-pi.conf",
+    "compile_example": "./compile.sh build BOARD=atomic-pi BRANCH=current BUILD_DESKTOP=yes BUILD_MINIMAL=no DESKTOP_ENVIRONMENT=xfce DESKTOP_TIER=mid KERNEL_CONFIGURE=no RELEASE=trixie",
     "armbian_repo": "https://github.com/armbian/build",
     "profiles": [
       "atomicpi-minimal  (3500 MB, systemd-networkd, headless baseline)",
       "atomicpi-server   (6000 MB, NetworkManager, Podman)",
       "atomicpi-dev      (9000 MB, NetworkManager, kernel headers)",
-      "atomicpi-desktop  (11000 MB, XFCE — build after headless proven)"
+      "atomicpi-desktop  (11000 MB, XFCE — first successful build)"
     ]
   },
   "hardware_notes": {
@@ -52,37 +54,63 @@
     {
       "stage": 1,
       "name": "armbian-base-build",
-      "description": "compile.sh builds uefi-x86 Trixie base image",
-      "status": "not_run",
-      "steps": []
+      "description": "compile.sh builds atomic-pi Trixie base image",
+      "status": "complete",
+      "steps": [
+        "Kernel 6.18.32-current-x86 built and cached",
+        "Rootfs with Debian Trixie + Armbian packages assembled",
+        "armbian-bsp-cli-atomic-pi-current-grub package generated"
+      ]
     },
     {
       "stage": 2,
       "name": "customize-image",
       "description": "overlay rsync + service enable + DKMS modules",
-      "status": "not_run",
-      "steps": []
+      "status": "complete",
+      "steps": [
+        "Overlay applied to image root",
+        "atomicpi-hold-xmos, atomicpi-hold-mic, atomicpi-firstboot services enabled",
+        "SSH hardened (PasswordAuthentication no)",
+        "DKMS skipped (non-dev profile, no headers)"
+      ]
     },
     {
       "stage": 3,
       "name": "flash-and-test",
-      "description": "Flash to eMMC, run firstboot.sh, work through test-matrix.md",
+      "description": "Flash to USB/eMMC, run firstboot.sh, work through test-matrix.md",
       "status": "not_run",
       "steps": []
     }
   ],
+  "first_successful_image": {
+    "ts": "2026-05-22T23:15:00-05:00",
+    "filename": "Armbian-unofficial_26.05.0-trunk_Atomic-pi_trixie_current_6.18.32_xfce_desktop.img",
+    "path": "~/src/armbian-build/output/images/",
+    "size_gib": 8.68,
+    "kernel": "6.18.32-current-x86",
+    "profile": "desktop (XFCE)",
+    "build_time_min": "1:44 (kernel/rootfs cached)",
+    "grub": "BIOS (i386-pc) + EFI (x86_64-efi)",
+    "serial_console": "ttyS0"
+  },
   "pivot_history": [
     {
       "ts": "2026-05-22T21:30:00-05:00",
       "from": "custom debootstrap 5-stage pipeline",
-      "to": "Armbian uefi-x86 + userpatches overlay (single config+customize pair)",
+      "to": "Armbian uefi-x86 + userpatches overlay",
       "reason": "Armbian already maintains uefi-x86/Trixie at Standard tier."
     },
     {
       "ts": "2026-05-22T22:00:00-05:00",
       "from": "single-config + monolithic customize-image.sh (heredocs)",
       "to": "multi-profile configs + overlay/ tree + extensions/ hook",
-      "reason": "Cleaner separation: static files in overlay, package injection in extension hooks, runtime steps only in customize-image.sh. Multiple named profiles (minimal/server/dev/desktop). No board file or Armbian fork needed."
+      "reason": "Cleaner separation: static files in overlay, package injection in extension hooks, runtime steps only in customize-image.sh."
+    },
+    {
+      "ts": "2026-05-22T22:30:00-05:00",
+      "from": "BOARD=uefi-x86 (anonymous board)",
+      "to": "BOARD=atomic-pi (named board config in config/boards/atomic-pi.conf)",
+      "reason": "Named board appears in ./compile.sh interactive menu. Board config symlinked from repo into Armbian clone by build scripts."
     }
   ],
   "issues": [
@@ -90,8 +118,22 @@
       "ts": "2026-05-22T22:10:00-05:00",
       "key": "USERPATCHES_PATH_override",
       "status": "resolved",
-      "description": "USERPATCHES_PATH=... passed as compile.sh cmdline arg is applied early but then unconditionally overridden by 'declare -g -r USERPATCHES_PATH=${SRC}/userpatches' in entrypoint.sh:119. Named profile arg 'atomicpi-minimal' therefore fails with 'Unknown argument'.",
-      "fix": "Symlink armbian/userpatches/* into ~/src/armbian-build/userpatches/ before calling compile.sh. Build scripts now do this automatically. Direct compile.sh invocation with USERPATCHES_PATH= is documented as non-functional."
+      "description": "USERPATCHES_PATH=... passed as compile.sh cmdline arg is unconditionally overridden by entrypoint.sh:119.",
+      "fix": "Symlink armbian/userpatches/* into ~/src/armbian-build/userpatches/ before calling compile.sh."
+    },
+    {
+      "ts": "2026-05-22T23:00:00-05:00",
+      "key": "customize_image_RELEASE_unbound",
+      "status": "resolved",
+      "description": "customize-image.sh referenced $RELEASE as env var; Armbian passes it as positional arg $1 inside chroot.",
+      "fix": "Added RELEASE=${1:-} LINUXFAMILY=${2:-} BOARD=${3:-} BUILD_DESKTOP=${4:-} ARCH=${5:-} at top of script."
+    },
+    {
+      "ts": "2026-05-22T23:05:00-05:00",
+      "key": "dkms_no_headers",
+      "status": "resolved",
+      "description": "DKMS build failed in non-dev profiles because INSTALL_HEADERS=no means no kernel headers in image.",
+      "fix": "Guard in customize-image.sh: skip DKMS if /lib/modules/${KVER}/build does not exist."
     }
   ],
   "notes": [
@@ -101,23 +143,19 @@
     },
     {
       "ts": "2026-05-22T22:00:00-05:00",
-      "msg": "sysfs GPIO (/sys/class/gpio/) is deprecated since ~5.3 but present in 6.x. If Armbian current-branch kernel removes it, switch services to 'gpioset' from the gpiod package."
+      "msg": "sysfs GPIO (/sys/class/gpio/) is deprecated since ~5.3 but present in 6.x. If removed, switch services to 'gpioset' from gpiod package."
     },
     {
       "ts": "2026-05-22T22:00:00-05:00",
-      "msg": "customize-image.sh git-clones DKMS modules during build — requires network in chroot. Normal for Armbian builds. If offline, pre-clone into armbian/userpatches/packages/ and update path."
+      "msg": "SSH hardened: PasswordAuthentication no. Users must set a key via preset-firstrun.sh or on first boot."
     },
     {
       "ts": "2026-05-22T22:00:00-05:00",
-      "msg": "Armbian kernel headers package naming for uefi-x86 should be linux-headers-current-x86. Verify after first build with 'dpkg -l | grep linux-headers' in the image."
+      "msg": "BIOS default boot order after CMOS reset may prioritize PXE over eMMC. Document after first hardware test."
     },
     {
-      "ts": "2026-05-22T22:00:00-05:00",
-      "msg": "SSH hardened in customize-image.sh: PasswordAuthentication no. Users must set a key via preset-firstrun.sh or interactively on first boot. Adjust if passwordless SSH is needed for a lab image."
-    },
-    {
-      "ts": "2026-05-22T22:00:00-05:00",
-      "msg": "BIOS default boot order after CMOS reset may prioritize PXE over eMMC. Document exact behavior in boot-uefi.md after first hardware test."
+      "ts": "2026-05-22T23:15:00-05:00",
+      "msg": "First image built is desktop/XFCE (selected via interactive menu). Next: build minimal profile via ./scripts/build-minimal.sh and flash to hardware."
     }
   ]
 }
