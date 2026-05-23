@@ -52,9 +52,15 @@ echo ">>> [4] SSH hardened (password auth disabled)"
 
 # ── 5. DKMS: i2c-gpio-custom and spi-gpio-custom ─────────────────────────────
 # Out-of-tree GPIO modules for the Z8350's bitbanged I2C/SPI buses.
-# Cloned from GitHub during build (requires network in chroot, normal for Armbian).
-# Built against the installed kernel and registered with DKMS for auto-rebuild.
+# Skipped when kernel headers are absent (minimal/server/desktop profiles).
+# Headers are only present in the dev profile (INSTALL_HEADERS=yes).
 KVER=$(ls /lib/modules/ | tail -1)
+
+if [[ ! -d "/lib/modules/${KVER}/build" ]]; then
+    echo ">>> [5] DKMS skipped — kernel headers not installed (non-dev profile)"
+    echo ">>> Atomic Pi customize-image: complete"
+    exit 0
+fi
 
 for MODULE in i2c-gpio-custom spi-gpio-custom; do
     VERSION=1.0
