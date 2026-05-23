@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       profile:
-        description: "Atomic Pi profile"
+        description: "Build profile"
         required: true
         default: "atomicpi-minimal"
         type: choice
@@ -13,7 +13,7 @@ on:
           - atomicpi-server
           - atomicpi-dev
 
-# Only one build at a time; cancel in-progress runs on new push.
+# One build at a time; cancel in-progress on new dispatch.
 concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
@@ -21,7 +21,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
 
     steps:
       - name: Checkout Atomicty_Pi
@@ -36,18 +36,39 @@ jobs:
           path: armbian-build
           fetch-depth: 1
 
+      - name: Install board config and symlink userpatches
+        run: |
+          # Armbian hardcodes USERPATCHES_PATH=${SRC}/userpatches and ignores
+          # the cmdline arg. Symlinks are the supported workaround.
+          ARMBIAN_UP="${GITHUB_WORKSPACE}/armbian-build/userpatches"
+          OUR_UP="${GITHUB_WORKSPACE}/Atomicty_Pi/armbian/userpatches"
+          BOARD_CONF="${GITHUB_WORKSPACE}/Atomicty_Pi/armbian/atomic-pi.conf"
+          BOARDS_DIR="${GITHUB_WORKSPACE}/armbian-build/config/boards"
+
+          mkdir -p "$ARMBIAN_UP"
+          for item in "$OUR_UP"/*; do
+            ln -sf "$item" "$ARMBIAN_UP/$(basename "$item")"
+          done
+
+          ln -sf "$BOARD_CONF" "${BOARDS_DIR}/atomic-pi.conf"
+
+          echo "Userpatches symlinked: $ARMBIAN_UP"
+          echo "Board config installed: ${BOARDS_DIR}/atomic-pi.conf"
+
       - name: Build image
         working-directory: armbian-build
         run: |
-          ./compile.sh build \
-            USERPATCHES_PATH="${GITHUB_WORKSPACE}/Atomicty_Pi/armbian/userpatches" \
-            "${{ inputs.profile }}"
+          ./compile.sh build "${{ inputs.profile }}" \
+            KERNEL_CONFIGURE=no
 
-      - name: Upload image
+      - name: Upload image artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: atomicpi-armbian-${{ inputs.profile }}-${{ github.sha }}
-          path: armbian-build/output/images/*
+          name: atomicpi-${{ inputs.profile }}-${{ github.sha }}
+          path: |
+            armbian-build/output/images/*.img
+            armbian-build/output/images/*.sha
+            armbian-build/output/images/*.txt
           retention-days: 7
 
       - name: Upload build log
@@ -55,5 +76,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log-${{ inputs.profile }}-${{ github.sha }}
-          path: armbian-build/output/debug/
+          path: armbian-build/output/logs/
           retention-days: 3
