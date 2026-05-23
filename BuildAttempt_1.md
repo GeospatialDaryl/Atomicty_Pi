@@ -149,4 +149,10 @@ asound.conf: pcm.!default → hw:XMOS,0
 
 ## Issues Found
 
-*(None yet)*
+### ISSUE-001: USERPATCHES_PATH cmdline arg silently overridden — resolved
+
+**Symptom:** `./compile.sh build USERPATCHES_PATH=... atomicpi-minimal` exits immediately with `Unknown argument [atomicpi-minimal]`.
+
+**Root cause:** `entrypoint.sh:119` does `declare -g -r USERPATCHES_PATH="${SRC}/userpatches"` unconditionally after `apply_cmdline_params_to_env "early"`. The cmdline USERPATCHES_PATH is set and immediately clobbered. Named-argument config lookup (`config-${arg}.conf`) also hardcodes `${SRC}/userpatches`, not the external path.
+
+**Fix:** Build scripts symlink `armbian/userpatches/*` into `~/src/armbian-build/userpatches/` before calling `compile.sh`. Config files, overlay, extensions, and customize-image.sh are all found through the symlinks. `USERPATCHES_PATH=...` removed from all build scripts.

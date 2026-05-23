@@ -18,22 +18,36 @@ It sits entirely outside the Armbian source tree and is connected via `USERPATCH
 
 ## Build command (any profile)
 
-```bash
-cd ~/src/armbian-build
-./compile.sh build \
-  USERPATCHES_PATH="$HOME/Claude/Atomic_Pi/armbian/userpatches" \
-  atomicpi-minimal
-```
-
-Or use the wrapper scripts in `scripts/`:
+Always use the wrapper scripts — they handle the symlink setup automatically:
 
 ```bash
-./scripts/build-minimal.sh   # sets ARMBIAN_BUILD_DIR, calls compile.sh
+./scripts/build-minimal.sh
 ./scripts/build-server.sh
 ./scripts/build-dev.sh
 ```
 
 `ARMBIAN_BUILD_DIR` defaults to `$HOME/src/armbian-build`; override to use a different clone.
+
+Do **not** call `./compile.sh build USERPATCHES_PATH=... atomicpi-minimal` directly.
+See "USERPATCHES_PATH override" below for why.
+
+## USERPATCHES_PATH override (important)
+
+Armbian's `entrypoint.sh` line 119 does:
+
+```bash
+declare -g -r USERPATCHES_PATH="${SRC}"/userpatches
+```
+
+This is **read-only and unconditional** — it runs after `apply_cmdline_params_to_env "early"`,
+so `USERPATCHES_PATH=...` passed on the command line is applied and then immediately
+overridden. The external USERPATCHES_PATH argument does not work.
+
+**Fix:** the build scripts symlink the contents of `armbian/userpatches/` into
+`~/src/armbian-build/userpatches/` before calling `compile.sh`. This satisfies:
+- Named argument lookup: `atomicpi-minimal` → `userpatches/config-atomicpi-minimal.conf` ✓
+- Config `source` calls: `${USERPATCHES_PATH}/config-atomicpi-common.conf` ✓
+- `customize-image.sh`, `overlay/`, `extensions/` — all found via symlinks ✓
 
 ## Build host requirements
 

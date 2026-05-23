@@ -85,7 +85,15 @@
       "reason": "Cleaner separation: static files in overlay, package injection in extension hooks, runtime steps only in customize-image.sh. Multiple named profiles (minimal/server/dev/desktop). No board file or Armbian fork needed."
     }
   ],
-  "issues": [],
+  "issues": [
+    {
+      "ts": "2026-05-22T22:10:00-05:00",
+      "key": "USERPATCHES_PATH_override",
+      "status": "resolved",
+      "description": "USERPATCHES_PATH=... passed as compile.sh cmdline arg is applied early but then unconditionally overridden by 'declare -g -r USERPATCHES_PATH=${SRC}/userpatches' in entrypoint.sh:119. Named profile arg 'atomicpi-minimal' therefore fails with 'Unknown argument'.",
+      "fix": "Symlink armbian/userpatches/* into ~/src/armbian-build/userpatches/ before calling compile.sh. Build scripts now do this automatically. Direct compile.sh invocation with USERPATCHES_PATH= is documented as non-functional."
+    }
+  ],
   "notes": [
     {
       "ts": "2026-05-22T22:00:00-05:00",
