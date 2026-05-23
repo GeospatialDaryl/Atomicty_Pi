@@ -1,0 +1,69 @@
+name: Build Armbian for Atomic Pi
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'armbian/**'
+      - 'build_atomicpi.sh'
+      - '.github/workflows/build-armbian.yml'
+  pull_request:
+    paths:
+      - 'armbian/**'
+  workflow_dispatch:
+    inputs:
+      config:
+        description: 'Build config'
+        required: true
+        default: 'minimal'
+        type: choice
+        options: [minimal, server]
+
+# Armbian builds are slow (~30–60 min) and require Ubuntu Jammy or Noble.
+# GitHub's ubuntu-latest runners (22.04/24.04) work; self-hosted is faster.
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout Atomic Pi repo
+        uses: actions/checkout@v4
+
+      - name: Clone Armbian build framework
+        run: git clone --depth=1 https://github.com/armbian/build armbian-build
+
+      - name: Install Armbian build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            git curl ca-certificates jq python3 \
+            qemu-user-static debootstrap
+
+      - name: Build image
+        run: |
+          cd armbian-build
+          sudo ./compile.sh \
+            USERPATCHES_PATH="${GITHUB_WORKSPACE}/armbian/userpatches" \
+            @"${GITHUB_WORKSPACE}/armbian/config-atomicpi-${{ inputs.config || 'minimal' }}.conf" \
+            BOARD=uefi-x86 \
+            RELEASE=trixie \
+            BUILD_MINIMAL=yes \
+            BUILD_DESKTOP=no \
+            KERNEL_CONFIGURE=no \
+            COMPRESS_OUTPUTIMAGE=sha,img,xz
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: atomicpi-armbian-${{ inputs.config || 'minimal' }}-${{ github.sha }}
+          path: armbian-build/output/images/*.img.xz
+          retention-days: 7
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.sha }}
+          path: armbian-build/output/debug/
+          retention-days: 3

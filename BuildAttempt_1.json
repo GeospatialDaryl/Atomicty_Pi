@@ -1,0 +1,90 @@
+{
+  "build_attempt": 1,
+  "started": "2026-05-22T21:30:00-05:00",
+  "status": "scaffolded_armbian",
+  "host": "pending-first-run",
+  "target": {
+    "board": "Atomic Pi",
+    "cpu": "Intel Atom x5-Z8350 (x86-64)",
+    "ram": "2GB",
+    "storage": "16GB eMMC (/dev/mmcblk0)",
+    "debian_release": "trixie",
+    "arch": "amd64"
+  },
+  "build_approach": {
+    "backend": "Armbian",
+    "base_board": "uefi-x86",
+    "layer": "Atomic Pi userpatches overlay",
+    "rationale": "Armbian uefi-x86 already provides GPT/EFI image, kernel integration, and SBC-style build automation. Atomic Pi support is an overlay (userpatches/customize-image.sh) rather than a new board port.",
+    "build_command": "./build_atomicpi.sh minimal",
+    "armbian_repo": "https://github.com/armbian/build",
+    "config_files": [
+      "armbian/config-atomicpi-minimal.conf",
+      "armbian/config-atomicpi-server.conf"
+    ]
+  },
+  "hardware_notes": {
+    "audio": "XMOS xCORE USB audio → TI TAS5719 class-D amp → powered outputs. GPIO 349 deasserted at boot by atomicpi-hold-xmos.service.",
+    "gpio_xmos_reset": 349,
+    "gpio_mic_sel": 341,
+    "dma_blacklist": ["dw_dmac", "dw_dmac_core"],
+    "wifi_driver": "rt2800usb",
+    "ethernet_driver": "r8169",
+    "bluetooth_driver": "btusb",
+    "dkms_modules": ["i2c-gpio-custom", "spi-gpio-custom"]
+  },
+  "stages": [
+    {
+      "stage": 1,
+      "name": "armbian-base-build",
+      "description": "Armbian compile.sh builds the uefi-x86 Trixie base image",
+      "status": "not_run",
+      "steps": []
+    },
+    {
+      "stage": 2,
+      "name": "customize-image",
+      "description": "armbian/userpatches/customize-image.sh applies Atomic Pi hardware layer",
+      "status": "not_run",
+      "steps": []
+    },
+    {
+      "stage": 3,
+      "name": "flash-and-test",
+      "description": "Flash to eMMC, run firstboot.sh, verify test-matrix.md",
+      "status": "not_run",
+      "steps": []
+    }
+  ],
+  "pivot_history": [
+    {
+      "ts": "2026-05-22T21:30:00-05:00",
+      "from": "custom debootstrap pipeline (5 stages)",
+      "to": "Armbian uefi-x86 + userpatches overlay",
+      "reason": "Armbian already maintains uefi-x86 target with Trixie, Standard support tier. Provides SBC workflow (flashable images, kernel/rootfs integration, GitHub Actions) without reinventing image creation."
+    }
+  ],
+  "issues": [],
+  "notes": [
+    {
+      "ts": "2026-05-22T21:40:00-05:00",
+      "msg": "XMOS USB device name in asound.conf uses card name 'XMOS'. Must verify against 'aplay -l' output on first live boot. The card name comes from USB descriptor strings and could vary."
+    },
+    {
+      "ts": "2026-05-22T21:40:00-05:00",
+      "msg": "PulseAudio default-sink.pa uses a guessed PA sink name. Run 'pactl list sinks short' on first boot and update files/default-sink.pa if the name differs."
+    },
+    {
+      "ts": "2026-05-22T21:40:00-05:00",
+      "msg": "customize-image.sh git-clones digitalloggers DKMS modules during Armbian build — requires network in chroot. Armbian build normally has internet access. If offline, pre-clone into armbian/userpatches/packages/ and update the script path."
+    },
+    {
+      "ts": "2026-05-22T21:40:00-05:00",
+      "msg": "Armbian uefi-x86 BRANCH=current kernel version is unknown until build runs. If the kernel ships without CONFIG_GPIOLIB_SYSFS or similar, the sysfs GPIO approach in the systemd services will fail and we'll need to switch to libgpiod/gpiod-based services."
+    },
+    {
+      "ts": "2026-05-22T21:40:00-05:00",
+      "msg": "PACKAGE_LIST_ADDITIONAL in config-atomicpi-server.conf includes 'linux-headers-current-x86' — Armbian's header package naming convention. Verify this is the correct package name for the uefi-x86 board after first build."
+    }
+  ]
+}

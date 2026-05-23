@@ -1,0 +1,15 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+*.log
+.DS_Store
+.idea/
+.vscode/
+
+# Build artifacts
+*.img
+/tmp/atomicpi-build/
+

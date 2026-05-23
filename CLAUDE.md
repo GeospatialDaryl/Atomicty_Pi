@@ -4,102 +4,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Goal
 
-Build a modern Debian (Bookworm or later) flashable image for the Atomic Pi SBC, replacing the outdated manufacturer-provided Lubuntu image. The image must preserve full hardware functionality, especially the onboard XMOS-driven powered speaker outputs.
-
-## Hardware Reference
-
-**SoC**: Intel Atom x5-Z8350 (Cherry Trail, x86-64 only — 32-bit images will not boot)
-**RAM**: 2GB
-**Storage**: 16GB eMMC at `/dev/mmcblk0`
-**Boot**: AMI UEFI BIOS (press Del or Tab at splash). Serial console on CN10: 115200 baud, 3.3V TTL, pins 1=TX 2=RX 3=GND.
-
-**Networking**
-- Ethernet: Realtek RTL8111G (mainline kernel, works out of the box)
-- WiFi: MediaTek RT5572 (USB bus, driver: `rt2800usb`)
-- Bluetooth: Qualcomm CSR8510 (USB bus)
-
-**Audio — the critical subsystem**
-The XMOS xCORE digital audio processor sits on the USB peripheral bus and feeds a TI TAS5719 class-D stereo amplifier (~1.5W/ch at 5V, up to 2×5W at 12V). HDMI is the default audio device; the XMOS/TAS5719 path drives the onboard powered speaker outputs.
-
-The XMOS must be explicitly brought out of reset via GPIO before audio works:
-```bash
-echo 349 > /sys/class/gpio/export
-echo out > /sys/class/gpio/gpio349/direction
-echo 0 > /sys/class/gpio/gpio349/value   # assert reset
-echo 1 > /sys/class/gpio/gpio349/value   # release reset
-```
-GPIO 341 controls mic input selection (0 = microphone, 1 = loopback).
-
-These are managed by `atomicpi-hold-xmos.service` and `atomicpi-hold-mic.service` from [slact/atomicpi-utils](https://github.com/slact/atomicpi-utils).
-
-**I2C / SPI**
-The standard kernel I2C/SPI drivers do not map the Atomic Pi's GPIO-bitbanged buses correctly. Two out-of-tree kernel modules are required:
-- [digitalloggers/i2c-gpio-custom](https://github.com/digitalloggers/i2c-gpio-custom)
-- [digitalloggers/spi-gpio-custom](https://github.com/digitalloggers/spi-gpio-custom)
-
-These are needed for the BNO055 IMU and onboard RTC.
-
-## Known Hardware Quirks
-
-| Issue | Fix |
-|---|---|
-| Board hangs on shutdown/reboot | Blacklist `dw_dmac` and `dw_dmac_core` kernel modules |
-| CMOS reset button near edge | Easily triggered accidentally; corrupts eMMC boot partitions |
-| SD card is on USB bus | `/dev/mmcblk0` is eMMC; SD appears as USB mass storage |
-| Powered USB hub required | Without it, USB devices (including SD adapter) behave erratically |
-
-Blacklist config (`/etc/modprobe.d/blacklist-atomicpi.conf`):
-```
-blacklist dw_dmac
-blacklist dw_dmac_core
-```
-
-## Build Approach
-
-Standard Debian amd64 `debootstrap` into a raw disk image, then `dd` to eMMC:
-
-```
-dd if=atomicpi-debian.img of=/dev/mmcblk0 bs=1024k oflag=dsync status=progress
-```
-
-Image layout: GPT with an EFI System Partition (FAT32) + root ext4 partition. GRUB EFI bootloader.
-
-## Upstream Sources
-
-| Repo | Purpose |
-|---|---|
-| [slact/atomicpi-utils](https://github.com/slact/atomicpi-utils) | XMOS + mic GPIO hold services, GPIO pin library |
-| [embolon/AtomicPi_Ubuntu_Patch](https://github.com/embolon/AtomicPi_Ubuntu_Patch) | `dw_dmac` blacklist + sysctl performance tweaks |
-| [digitalloggers/i2c-gpio-custom](https://github.com/digitalloggers/i2c-gpio-custom) | Out-of-tree I2C GPIO kernel module |
-| [digitalloggers/spi-gpio-custom](https://github.com/digitalloggers/spi-gpio-custom) | Out-of-tree SPI GPIO kernel module |
-| [ezbe/Atomic-Pi-Tools](https://github.com/ezbe/Atomic-Pi-Tools) | Post-install deployment scripts + systemd services |
-| [digital-loggers.com/api_faqs.html](https://www.digital-loggers.com/api_faqs.html) | Official hardware FAQ |
-| [digital-loggers.com/downloads](https://www.digital-loggers.com/downloads/) | Official OS images (reference/comparison) |
-
-## Intended Repository Structure
-
-```
-build.sh                  # top-level orchestrator
-config                    # build-time variables (Debian release, image size, etc.)
-scripts/
-  01-debootstrap.sh       # base Debian rootfs
-  02-kernel.sh            # linux-image + GRUB EFI
-  03-hardware.sh          # dw_dmac blacklist, GPIO modules
-  04-audio.sh             # XMOS service install, ALSA config
-  05-image.sh             # partition image, copy rootfs, install bootloader
-files/
-  blacklist-atomicpi.conf
-  atomicpi-hold-xmos.service
-  atomicpi-hold-mic.service
-  asound.conf             # set XMOS USB audio as default ALSA device
-patches/                  # any kernel or package patches needed
-```
+Build a modern Debian (Trixie) image for the Atomic Pi SBC by treating it as an overlay profile on top of Armbian's maintained `uefi-x86` target — not a new board port. The Atomic Pi-specific layer lives entirely in `armbian/userpatches/customize-image.sh`.
 
 ## Build Commands
 
 ```bash
-sudo ./build.sh           # full build, produces atomicpi-debian.img
-sudo ./build.sh --stage 4 # run a single stage for iteration
+# Full build (minimal image, Debian Trixie)
+./build_atomicpi.sh minimal
+
+# Server image (more packages)
+./build_atomicpi.sh server
+
+# Update Armbian build framework clone
+./build_atomicpi.sh --update-armbian
 ```
 
-Build requires: `debootstrap`, `parted`, `dosfstools`, `grub-efi-amd64`, `qemu-user-static` (if cross-building), `make`, `gcc`, `linux-headers`.
+Build host must be Ubuntu Jammy (22.04) or Noble (24.04). Run as a normal user — Armbian's `compile.sh` will sudo what it needs.
+
+## Repository Structure
+
+```
+build_atomicpi.sh                     Wrapper: clones Armbian, runs compile.sh
+armbian/
+  config-atomicpi-minimal.conf        BOARD=uefi-x86 RELEASE=trixie BUILD_MINIMAL=yes
+  config-atomicpi-server.conf         Same + PACKAGE_LIST_ADDITIONAL for dev tools
+  userpatches/
+    customize-image.sh                THE key file — Atomic Pi hardware layer
+    packages/                         Drop .deb files here for Armbian auto-install
+scripts/
+  flash-usb.sh                        Write image to USB (on workstation)
+  flash-emmc.sh                       Write image to eMMC (on the board, from USB boot)
+  firstboot.sh                        Post-flash verification (audio, GPIO, network)
+docs/
+  hardware.md                         Full hardware reference (GPIO, audio chain, quirks)
+  boot-notes.md                       UEFI/BIOS, serial console, boot order
+  image-layout.md                     GPT partition layout and flash procedure
+  test-matrix.md                      Verification checklist for each hardware feature
+.github/workflows/build-armbian.yml   CI build on push to main
+BuildAttempt_1.json                   Machine-readable build log (updated each session)
+BuildAttempt_1.md                     Human-readable build log (updated each session)
+```
+
+## Hardware: Atomic Pi
+
+- **CPU:** Intel Atom x5-Z8350 (Cherry Trail, x86-64 only)
+- **Boot:** AMI UEFI, GPT required. Press **Del/Tab** at splash for BIOS.
+- **eMMC:** `/dev/mmcblk0`. SD card appears as USB mass storage, not `mmcblk1`.
+- **Serial console:** CN10, 115200 8N1, 3.3V TTL, pins 1=TX 2=RX 3=GND.
+
+### Audio — the critical hardware path
+
+```
+GPIO 349 released → XMOS xCORE (USB Audio 2.0) → TI TAS5719 class-D → powered speaker outputs
+```
+
+- `atomicpi-hold-xmos.service`: toggles GPIO 349 at boot to bring XMOS out of reset.
+- `atomicpi-hold-mic.service`: sets GPIO 341 = 0 (microphone input, not loopback).
+- `asound.conf`: sets `hw:XMOS,0` as ALSA default device.
+- HDMI is card 0; XMOS is card 1. Verify card name with `aplay -l` on first boot.
+
+### Mandatory kernel module blacklist
+
+`dw_dmac` and `dw_dmac_core` must be blacklisted or the board hangs on every shutdown/reboot. Installed by `customize-image.sh` step 1.
+
+### Out-of-tree DKMS modules
+
+`i2c-gpio-custom` and `spi-gpio-custom` (from github.com/digitalloggers) are required for the GPIO-bitbanged I2C/SPI buses (BNO055 IMU, onboard RTC). Built and installed by `customize-image.sh` step 7.
+
+## Key Files to Edit for Common Tasks
+
+| Task | File |
+|---|---|
+| Add/remove packages from image | `armbian/config-atomicpi-server.conf` → `PACKAGE_LIST_ADDITIONAL` |
+| Change hardware config (services, ALSA, GPIO) | `armbian/userpatches/customize-image.sh` |
+| Change Debian release or kernel branch | `armbian/config-atomicpi-minimal.conf` |
+| Update flash procedure | `scripts/flash-emmc.sh` |
+| Add test cases | `docs/test-matrix.md` |
+
+## Build Logs
+
+Always update `BuildAttempt_1.json` and `BuildAttempt_1.md` when:
+- A build is run (record outcome, timestamps, any errors)
+- A hardware test result is confirmed
+- A new issue is found or resolved
+- A decision is changed from what was previously recorded
+
+The JSON is the source of truth for automated parsing; the MD is the human-readable companion.
