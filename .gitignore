@@ -3,6 +3,7 @@
 *.sqlite
 *.sqlite3
 
-# Local data dir artifacts
-data/
-!data/.gitkeep
+# Local data dir artifacts — track the directory stub, ignore database files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
