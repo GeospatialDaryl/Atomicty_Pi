@@ -1,0 +1,14 @@
+[Unit]
+Description=Atomic Pi — first-boot hardware validation
+After=network.target atomicpi-hold-xmos.service
+ConditionPathExists=!/var/lib/atomicpi/.firstboot-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/atomicpi-firstboot
+ExecStartPost=/bin/mkdir -p /var/lib/atomicpi
+ExecStartPost=/bin/touch /var/lib/atomicpi/.firstboot-done
+
+[Install]
+WantedBy=multi-user.target

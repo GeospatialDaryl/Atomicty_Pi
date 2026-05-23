@@ -1,7 +1,7 @@
 {
   "build_attempt": 1,
   "started": "2026-05-22T21:30:00-05:00",
-  "status": "scaffolded_armbian",
+  "status": "scaffolded_v2",
   "host": "pending-first-run",
   "target": {
     "board": "Atomic Pi",
@@ -14,13 +14,15 @@
   "build_approach": {
     "backend": "Armbian",
     "base_board": "uefi-x86",
-    "layer": "Atomic Pi userpatches overlay",
-    "rationale": "Armbian uefi-x86 already provides GPT/EFI image, kernel integration, and SBC-style build automation. Atomic Pi support is an overlay (userpatches/customize-image.sh) rather than a new board port.",
-    "build_command": "./build_atomicpi.sh minimal",
+    "layer": "userpatches profile (no fork)",
+    "userpatches_path": "armbian/userpatches/",
+    "compile_example": "./compile.sh build USERPATCHES_PATH=<repo>/armbian/userpatches atomicpi-minimal",
     "armbian_repo": "https://github.com/armbian/build",
-    "config_files": [
-      "armbian/config-atomicpi-minimal.conf",
-      "armbian/config-atomicpi-server.conf"
+    "profiles": [
+      "atomicpi-minimal  (3500 MB, systemd-networkd, headless baseline)",
+      "atomicpi-server   (6000 MB, NetworkManager, Podman)",
+      "atomicpi-dev      (9000 MB, NetworkManager, kernel headers)",
+      "atomicpi-desktop  (11000 MB, XFCE — build after headless proven)"
     ]
   },
   "hardware_notes": {
@@ -33,25 +35,38 @@
     "bluetooth_driver": "btusb",
     "dkms_modules": ["i2c-gpio-custom", "spi-gpio-custom"]
   },
+  "v1_milestone": {
+    "name": "Atomicty_Pi v0.1",
+    "description": "First functional build meeting the documented baseline",
+    "criteria": [
+      "Debian Trixie, Armbian uefi-x86, current kernel",
+      "ext4 root, systemd-networkd minimal + NetworkManager server images",
+      "SSH enabled, no console autologin",
+      "firmware packages included",
+      "SHA + xz output",
+      "documented eMMC install path",
+      "hardware validation checklist completed"
+    ]
+  },
   "stages": [
     {
       "stage": 1,
       "name": "armbian-base-build",
-      "description": "Armbian compile.sh builds the uefi-x86 Trixie base image",
+      "description": "compile.sh builds uefi-x86 Trixie base image",
       "status": "not_run",
       "steps": []
     },
     {
       "stage": 2,
       "name": "customize-image",
-      "description": "armbian/userpatches/customize-image.sh applies Atomic Pi hardware layer",
+      "description": "overlay rsync + service enable + DKMS modules",
       "status": "not_run",
       "steps": []
     },
     {
       "stage": 3,
       "name": "flash-and-test",
-      "description": "Flash to eMMC, run firstboot.sh, verify test-matrix.md",
+      "description": "Flash to eMMC, run firstboot.sh, work through test-matrix.md",
       "status": "not_run",
       "steps": []
     }
@@ -59,32 +74,42 @@
   "pivot_history": [
     {
       "ts": "2026-05-22T21:30:00-05:00",
-      "from": "custom debootstrap pipeline (5 stages)",
-      "to": "Armbian uefi-x86 + userpatches overlay",
-      "reason": "Armbian already maintains uefi-x86 target with Trixie, Standard support tier. Provides SBC workflow (flashable images, kernel/rootfs integration, GitHub Actions) without reinventing image creation."
+      "from": "custom debootstrap 5-stage pipeline",
+      "to": "Armbian uefi-x86 + userpatches overlay (single config+customize pair)",
+      "reason": "Armbian already maintains uefi-x86/Trixie at Standard tier."
+    },
+    {
+      "ts": "2026-05-22T22:00:00-05:00",
+      "from": "single-config + monolithic customize-image.sh (heredocs)",
+      "to": "multi-profile configs + overlay/ tree + extensions/ hook",
+      "reason": "Cleaner separation: static files in overlay, package injection in extension hooks, runtime steps only in customize-image.sh. Multiple named profiles (minimal/server/dev/desktop). No board file or Armbian fork needed."
     }
   ],
   "issues": [],
   "notes": [
     {
-      "ts": "2026-05-22T21:40:00-05:00",
-      "msg": "XMOS USB device name in asound.conf uses card name 'XMOS'. Must verify against 'aplay -l' output on first live boot. The card name comes from USB descriptor strings and could vary."
+      "ts": "2026-05-22T22:00:00-05:00",
+      "msg": "XMOS card name in asound.conf is 'XMOS'. Verify with 'aplay -l' on first live boot."
     },
     {
-      "ts": "2026-05-22T21:40:00-05:00",
-      "msg": "PulseAudio default-sink.pa uses a guessed PA sink name. Run 'pactl list sinks short' on first boot and update files/default-sink.pa if the name differs."
+      "ts": "2026-05-22T22:00:00-05:00",
+      "msg": "sysfs GPIO (/sys/class/gpio/) is deprecated since ~5.3 but present in 6.x. If Armbian current-branch kernel removes it, switch services to 'gpioset' from the gpiod package."
     },
     {
-      "ts": "2026-05-22T21:40:00-05:00",
-      "msg": "customize-image.sh git-clones digitalloggers DKMS modules during Armbian build — requires network in chroot. Armbian build normally has internet access. If offline, pre-clone into armbian/userpatches/packages/ and update the script path."
+      "ts": "2026-05-22T22:00:00-05:00",
+      "msg": "customize-image.sh git-clones DKMS modules during build — requires network in chroot. Normal for Armbian builds. If offline, pre-clone into armbian/userpatches/packages/ and update path."
     },
     {
-      "ts": "2026-05-22T21:40:00-05:00",
-      "msg": "Armbian uefi-x86 BRANCH=current kernel version is unknown until build runs. If the kernel ships without CONFIG_GPIOLIB_SYSFS or similar, the sysfs GPIO approach in the systemd services will fail and we'll need to switch to libgpiod/gpiod-based services."
+      "ts": "2026-05-22T22:00:00-05:00",
+      "msg": "Armbian kernel headers package naming for uefi-x86 should be linux-headers-current-x86. Verify after first build with 'dpkg -l | grep linux-headers' in the image."
     },
     {
-      "ts": "2026-05-22T21:40:00-05:00",
-      "msg": "PACKAGE_LIST_ADDITIONAL in config-atomicpi-server.conf includes 'linux-headers-current-x86' — Armbian's header package naming convention. Verify this is the correct package name for the uefi-x86 board after first build."
+      "ts": "2026-05-22T22:00:00-05:00",
+      "msg": "SSH hardened in customize-image.sh: PasswordAuthentication no. Users must set a key via preset-firstrun.sh or interactively on first boot. Adjust if passwordless SSH is needed for a lab image."
+    },
+    {
+      "ts": "2026-05-22T22:00:00-05:00",
+      "msg": "BIOS default boot order after CMOS reset may prioritize PXE over eMMC. Document exact behavior in boot-uefi.md after first hardware test."
     }
   ]
 }

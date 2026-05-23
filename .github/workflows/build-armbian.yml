@@ -1,69 +1,59 @@
-name: Build Armbian for Atomic Pi
+name: Build Armbian Atomic Pi image
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'armbian/**'
-      - 'build_atomicpi.sh'
-      - '.github/workflows/build-armbian.yml'
-  pull_request:
-    paths:
-      - 'armbian/**'
   workflow_dispatch:
     inputs:
-      config:
-        description: 'Build config'
+      profile:
+        description: "Atomic Pi profile"
         required: true
-        default: 'minimal'
+        default: "atomicpi-minimal"
         type: choice
-        options: [minimal, server]
+        options:
+          - atomicpi-minimal
+          - atomicpi-server
+          - atomicpi-dev
 
-# Armbian builds are slow (~30–60 min) and require Ubuntu Jammy or Noble.
-# GitHub's ubuntu-latest runners (22.04/24.04) work; self-hosted is faster.
+# Only one build at a time; cancel in-progress runs on new push.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
 
     steps:
-      - name: Checkout Atomic Pi repo
+      - name: Checkout Atomicty_Pi
         uses: actions/checkout@v4
+        with:
+          path: Atomicty_Pi
 
-      - name: Clone Armbian build framework
-        run: git clone --depth=1 https://github.com/armbian/build armbian-build
-
-      - name: Install Armbian build dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            git curl ca-certificates jq python3 \
-            qemu-user-static debootstrap
+      - name: Checkout Armbian build framework
+        uses: actions/checkout@v4
+        with:
+          repository: armbian/build
+          path: armbian-build
+          fetch-depth: 1
 
       - name: Build image
+        working-directory: armbian-build
         run: |
-          cd armbian-build
-          sudo ./compile.sh \
-            USERPATCHES_PATH="${GITHUB_WORKSPACE}/armbian/userpatches" \
-            @"${GITHUB_WORKSPACE}/armbian/config-atomicpi-${{ inputs.config || 'minimal' }}.conf" \
-            BOARD=uefi-x86 \
-            RELEASE=trixie \
-            BUILD_MINIMAL=yes \
-            BUILD_DESKTOP=no \
-            KERNEL_CONFIGURE=no \
-            COMPRESS_OUTPUTIMAGE=sha,img,xz
+          ./compile.sh build \
+            USERPATCHES_PATH="${GITHUB_WORKSPACE}/Atomicty_Pi/armbian/userpatches" \
+            "${{ inputs.profile }}"
 
-      - name: Upload image artifact
+      - name: Upload image
         uses: actions/upload-artifact@v4
         with:
-          name: atomicpi-armbian-${{ inputs.config || 'minimal' }}-${{ github.sha }}
-          path: armbian-build/output/images/*.img.xz
+          name: atomicpi-armbian-${{ inputs.profile }}-${{ github.sha }}
+          path: armbian-build/output/images/*
           retention-days: 7
 
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-${{ github.sha }}
+          name: build-log-${{ inputs.profile }}-${{ github.sha }}
           path: armbian-build/output/debug/
           retention-days: 3

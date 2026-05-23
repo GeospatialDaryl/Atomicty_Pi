@@ -4,89 +4,101 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Goal
 
-Build a modern Debian (Trixie) image for the Atomic Pi SBC by treating it as an overlay profile on top of Armbian's maintained `uefi-x86` target — not a new board port. The Atomic Pi-specific layer lives entirely in `armbian/userpatches/customize-image.sh`.
+Build modern Debian (Trixie) images for the Atomic Pi SBC using Armbian's `uefi-x86` target as a base. This repo is an Armbian **userpatches profile** — not a fork. All Atomic Pi-specific work lives under `armbian/userpatches/`.
 
 ## Build Commands
 
 ```bash
-# Full build (minimal image, Debian Trixie)
-./build_atomicpi.sh minimal
+# Minimal image (headless, systemd-networkd, ~3.5 GB)
+./scripts/build-minimal.sh
 
-# Server image (more packages)
-./build_atomicpi.sh server
+# Server image (NetworkManager, Podman, ~6 GB)
+./scripts/build-server.sh
 
-# Update Armbian build framework clone
-./build_atomicpi.sh --update-armbian
+# Dev image (kernel headers, DKMS, ~9 GB)
+./scripts/build-dev.sh
+
+# Or call Armbian directly:
+cd ~/src/armbian-build
+./compile.sh build \
+  USERPATCHES_PATH="$HOME/Claude/Atomic_Pi/armbian/userpatches" \
+  atomicpi-minimal
 ```
 
-Build host must be Ubuntu Jammy (22.04) or Noble (24.04). Run as a normal user — Armbian's `compile.sh` will sudo what it needs.
+Build host: Ubuntu 22.04 or 24.04. `ARMBIAN_BUILD_DIR` defaults to `~/src/armbian-build`.
 
 ## Repository Structure
 
 ```
-build_atomicpi.sh                     Wrapper: clones Armbian, runs compile.sh
-armbian/
-  config-atomicpi-minimal.conf        BOARD=uefi-x86 RELEASE=trixie BUILD_MINIMAL=yes
-  config-atomicpi-server.conf         Same + PACKAGE_LIST_ADDITIONAL for dev tools
-  userpatches/
-    customize-image.sh                THE key file — Atomic Pi hardware layer
-    packages/                         Drop .deb files here for Armbian auto-install
+armbian/userpatches/
+  config-atomicpi-common.conf     Shared base (BOARD, RELEASE, BRANCH, extensions)
+  config-atomicpi-minimal.conf    Headless baseline, systemd-networkd, 3.5 GB
+  config-atomicpi-server.conf     Server + Podman, NetworkManager, 6 GB
+  config-atomicpi-dev.conf        + kernel headers, INSTALL_HEADERS=yes, 9 GB
+  config-atomicpi-desktop.conf    XFCE, build after headless proven, 11 GB
+  customize-image.sh              Post-build hook: overlay rsync → services → DKMS
+  overlay/                        Files rsynced into image root (/tmp/overlay → /)
+    etc/modprobe.d/               dw_dmac blacklist
+    etc/sysctl.d/                 2 GB RAM tuning
+    etc/udev/rules.d/             GPIO chip ownership
+    etc/asound.conf               XMOS as ALSA default device
+    etc/systemd/system/           XMOS, mic, firstboot services
+    etc/atomicpi/profile          Board identity marker
+    usr/local/sbin/               atomicpi-firstboot validation script
+  extensions/
+    atomicpi-profile.sh           Package injection via post_aggregate_packages hook
+    preset-firstrun.sh            First-run wizard presets (locale, user, SSH key)
+  packages/
+    atomicpi-package-list.txt     Reference list of injected packages
+
 scripts/
-  flash-usb.sh                        Write image to USB (on workstation)
-  flash-emmc.sh                       Write image to eMMC (on the board, from USB boot)
-  firstboot.sh                        Post-flash verification (audio, GPIO, network)
+  build-{minimal,server,dev}.sh   Wrappers for ./compile.sh
+  flash-usb.sh                    Write image to USB/SD (workstation)
+  flash-emmc.sh                   Write image to eMMC (on the board)
+  firstboot.sh                    Interactive post-flash hardware verification
+  mount-image.sh                  Mount image for inspection (loopback)
+  qemu-smoke-test.sh              Boot image in QEMU/OVMF, check for login prompt
+
 docs/
-  hardware.md                         Full hardware reference (GPIO, audio chain, quirks)
-  boot-notes.md                       UEFI/BIOS, serial console, boot order
-  image-layout.md                     GPT partition layout and flash procedure
-  test-matrix.md                      Verification checklist for each hardware feature
-.github/workflows/build-armbian.yml   CI build on push to main
-BuildAttempt_1.json                   Machine-readable build log (updated each session)
-BuildAttempt_1.md                     Human-readable build log (updated each session)
+  atomic-pi-hardware.md           Hardware reference (GPIO, audio chain, quirks)
+  boot-uefi.md                    UEFI/BIOS, serial console, boot order
+  emmc-install.md                 Partition layout and flash procedure
+  test-matrix.md                  Hardware verification checklist
+  armbian-build-notes.md          Build system docs (profiles, hooks, no-fork policy)
+
+.github/workflows/build-armbian.yml   CI: manual dispatch, 3 profiles
+BuildAttempt_1.json / .md             Build log (update after every run or decision)
 ```
 
 ## Hardware: Atomic Pi
 
-- **CPU:** Intel Atom x5-Z8350 (Cherry Trail, x86-64 only)
+- **CPU:** Intel Atom x5-Z8350 (x86-64 only — 32-bit images do not boot)
 - **Boot:** AMI UEFI, GPT required. Press **Del/Tab** at splash for BIOS.
-- **eMMC:** `/dev/mmcblk0`. SD card appears as USB mass storage, not `mmcblk1`.
-- **Serial console:** CN10, 115200 8N1, 3.3V TTL, pins 1=TX 2=RX 3=GND.
+- **eMMC:** `/dev/mmcblk0`. SD card is USB-attached — appears as `/dev/sdX`, not `mmcblk1`.
+- **Serial:** CN10, 115200 8N1, 3.3V TTL. Pins: 1=TX 2=RX 3=GND.
 
 ### Audio — the critical hardware path
 
 ```
-GPIO 349 released → XMOS xCORE (USB Audio 2.0) → TI TAS5719 class-D → powered speaker outputs
+GPIO 349 released → XMOS xCORE (USB Audio 2.0) → TI TAS5719 class-D → powered outputs
 ```
 
-- `atomicpi-hold-xmos.service`: toggles GPIO 349 at boot to bring XMOS out of reset.
-- `atomicpi-hold-mic.service`: sets GPIO 341 = 0 (microphone input, not loopback).
-- `asound.conf`: sets `hw:XMOS,0` as ALSA default device.
-- HDMI is card 0; XMOS is card 1. Verify card name with `aplay -l` on first boot.
+- `atomicpi-hold-xmos.service`: releases GPIO 349 at boot.
+- `atomicpi-hold-mic.service`: sets GPIO 341 = 0 (mic input).
+- `overlay/etc/asound.conf`: XMOS as ALSA default. Verify card name with `aplay -l`.
+- `dw_dmac` blacklist is mandatory — missing it causes every shutdown/reboot to hang.
 
-### Mandatory kernel module blacklist
-
-`dw_dmac` and `dw_dmac_core` must be blacklisted or the board hangs on every shutdown/reboot. Installed by `customize-image.sh` step 1.
-
-### Out-of-tree DKMS modules
-
-`i2c-gpio-custom` and `spi-gpio-custom` (from github.com/digitalloggers) are required for the GPIO-bitbanged I2C/SPI buses (BNO055 IMU, onboard RTC). Built and installed by `customize-image.sh` step 7.
-
-## Key Files to Edit for Common Tasks
+## Key Files to Edit
 
 | Task | File |
 |---|---|
-| Add/remove packages from image | `armbian/config-atomicpi-server.conf` → `PACKAGE_LIST_ADDITIONAL` |
-| Change hardware config (services, ALSA, GPIO) | `armbian/userpatches/customize-image.sh` |
-| Change Debian release or kernel branch | `armbian/config-atomicpi-minimal.conf` |
-| Update flash procedure | `scripts/flash-emmc.sh` |
-| Add test cases | `docs/test-matrix.md` |
+| Add packages to all images | `extensions/atomicpi-profile.sh` → `PACKAGE_LIST_ADDITIONAL` |
+| Add packages to one profile | `config-atomicpi-server.conf` etc. |
+| Change hardware config (services, ALSA, blacklist) | `overlay/etc/...` |
+| Change build variables (release, size, compression) | `config-atomicpi-common.conf` |
+| Post-build runtime steps | `customize-image.sh` |
+| First-run user/locale/SSH presets | `extensions/preset-firstrun.sh` |
 
 ## Build Logs
 
-Always update `BuildAttempt_1.json` and `BuildAttempt_1.md` when:
-- A build is run (record outcome, timestamps, any errors)
-- A hardware test result is confirmed
-- A new issue is found or resolved
-- A decision is changed from what was previously recorded
-
-The JSON is the source of truth for automated parsing; the MD is the human-readable companion.
+Always update `BuildAttempt_1.json` and `BuildAttempt_1.md` when a build runs, a test result is confirmed, an issue is found/resolved, or a decision changes.

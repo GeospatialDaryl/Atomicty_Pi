@@ -1,0 +1,43 @@
+# atomicpi-package-list.txt
+# Reference list of packages installed by the atomicpi-profile extension.
+# This file is for documentation; the extension reads PACKAGE_LIST_ADDITIONAL
+# directly. It is available at /tmp/packages/ inside the image chroot if
+# customize-image.sh needs to reference it.
+
+# Core utilities
+openssh-server
+sudo
+vim
+git
+curl
+wget
+tmux
+htop
+iotop
+lm-sensors
+lshw
+usbutils
+pciutils
+ethtool
+smartmontools
+avahi-daemon
+
+# Hardware / bus tools
+i2c-tools
+alsa-utils
+dkms
+build-essential
+
+# Non-free firmware
+firmware-linux
+firmware-misc-nonfree
+firmware-realtek
+firmware-mediatek
+
+# Network security baseline
+nftables
+fail2ban
+unattended-upgrades
+
+# Container runtime
+podman

@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# atomicpi-firstboot — hardware validation on first boot.
+# Runs once via atomicpi-firstboot.service (gated by ConditionPathExists).
+# Output goes to the journal: journalctl -u atomicpi-firstboot
+
+set -euo pipefail
+
+LOG=/var/log/atomicpi-firstboot.log
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== Atomic Pi first-boot validation ==="
+echo "Date: $(date)"
+echo "Kernel: $(uname -r)"
+echo ""
+
+PASS=0; FAIL=0; WARN=0
+ok()   { echo "  [OK]   $*"; ((PASS++)) || true; }
+fail() { echo "  [FAIL] $*"; ((FAIL++)) || true; }
+warn() { echo "  [WARN] $*"; ((WARN++)) || true; }
+
+# ── XMOS GPIO ────────────────────────────────────────────────────────────────
+echo "[ Audio / GPIO ]"
+if systemctl is-active --quiet atomicpi-hold-xmos.service; then
+    ok "atomicpi-hold-xmos.service active"
+else
+    fail "atomicpi-hold-xmos.service not active"
+fi
+
+if [[ -f /sys/class/gpio/gpio349/value ]] && \
+   [[ "$(cat /sys/class/gpio/gpio349/value)" == "1" ]]; then
+    ok "GPIO 349 (XMOS_RESET) released"
+else
+    fail "GPIO 349 not released — XMOS may not be running"
+fi
+
+if aplay -l 2>/dev/null | grep -qi "xmos"; then
+    ok "XMOS audio card visible in ALSA"
+else
+    warn "XMOS audio card not found yet (may need udev settle time)"
+fi
+
+# ── kernel module blacklist ───────────────────────────────────────────────────
+echo ""
+echo "[ Kernel ]"
+if ! lsmod | grep -q "^dw_dmac"; then
+    ok "dw_dmac not loaded (blacklist effective)"
+else
+    fail "dw_dmac loaded — shutdown will hang"
+fi
+
+# ── networking ────────────────────────────────────────────────────────────────
+echo ""
+echo "[ Networking ]"
+ETH=$(ip -brief link show | awk '$2=="UP" && $1~/^e/ {print $1}' | head -1)
+if [[ -n "$ETH" ]]; then
+    ok "Ethernet up: $ETH"
+else
+    warn "No active Ethernet interface"
+fi
+
+# ── hardware info ─────────────────────────────────────────────────────────────
+echo ""
+echo "[ Hardware info ]"
+echo "  CPU: $(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)"
+echo "  RAM: $(free -h | awk '/^Mem/{print $2}')"
+echo "  Storage:"
+lsblk -d -o NAME,SIZE,MODEL 2>/dev/null | grep -v loop | sed 's/^/    /'
+
+# ── summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo "=== Results: ${PASS} passed, ${WARN} warnings, ${FAIL} failed ==="
+echo "Full log: $LOG"
+echo "Run scripts/firstboot.sh for an interactive re-check at any time."

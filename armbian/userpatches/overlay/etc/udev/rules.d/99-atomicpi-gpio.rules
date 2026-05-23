@@ -1,0 +1,5 @@
+# Atomic Pi: grant audio group access to GPIO chips.
+# gpiochip1 pin 8 (sysfs 349) = XMOS_RESET
+# gpiochip1 pin ? (sysfs 341) = AU_MIC_SEL
+SUBSYSTEM=="gpio", KERNEL=="gpiochip[0-3]", GROUP="audio", MODE="0660"
+SUBSYSTEM=="gpio", KERNEL=="gpio*", GROUP="audio", MODE="0660"

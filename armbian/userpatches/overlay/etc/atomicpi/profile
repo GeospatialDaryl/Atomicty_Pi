@@ -1,0 +1,3 @@
+BOARD_FAMILY=uefi-x86
+TARGET_BOARD=atomic-pi
+PROJECT=Atomicty_Pi

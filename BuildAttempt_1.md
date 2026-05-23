@@ -7,38 +7,61 @@
 
 ---
 
-## Status: Scaffolded — Armbian approach — Not Yet Run
+## Status: Scaffolded v2 — Not Yet Run
 
-All scripts and configuration files have been written. No build has been executed yet.
+All scripts and configuration files written. No build executed yet.
 
 ---
 
-## Strategy Pivot (2026-05-22)
+## Strategy: Armbian Userpatches Profile (no fork)
 
-**From:** Custom debootstrap pipeline (5-stage shell scripts, manual GPT/EFI image assembly)  
-**To:** Armbian `uefi-x86` base + Atomic Pi userpatches overlay
+This repo is a clean overlay on top of Armbian's upstream `uefi-x86` target.
+The Armbian build checkout is never modified. Connection is entirely via `USERPATCHES_PATH`.
 
-**Why:**  
-Armbian already maintains a `uefi-x86` target at Standard support tier with Debian Trixie. It provides everything we were going to build manually — GPT/EFI image layout, GRUB bootloader, kernel/initramfs integration, SBC-style build automation, and GitHub Actions support. Building on top of it means we write an overlay (a `customize-image.sh` hook), not a distro.
+```
+~/src/armbian-build/     ← standard upstream Armbian clone
+~/Claude/Atomic_Pi/      ← this repo
+  armbian/userpatches/   ← USERPATCHES_PATH
+```
 
-The original debootstrap scripts (stages 01–05) have been removed. The hardware config files from `files/` have been absorbed into `customize-image.sh` as heredocs so the hook is self-contained.
+### Pivot history
+
+| Date | Change | Reason |
+|---|---|---|
+| 2026-05-22 | Custom debootstrap → Armbian uefi-x86 overlay | Armbian already provides uefi-x86/Trixie at Standard tier |
+| 2026-05-22 | Monolithic customize-image.sh → overlay + extensions + multi-profile | Cleaner separation; better Armbian idiom |
 
 ---
 
 ## Architecture
 
 ```
-armbian/build (cloned)
-  └─ compile.sh BOARD=uefi-x86 RELEASE=trixie
-       ├─ builds standard Armbian Trixie image
-       └─ calls userpatches/customize-image.sh
-            ├─ [1] dw_dmac blacklist        (prevents shutdown hang)
-            ├─ [2] sysctl tweaks            (2 GB RAM tuning)
-            ├─ [3] udev GPIO rules          (audio group owns gpiochip*)
-            ├─ [4] XMOS systemd services    (GPIO 349 → powered audio)
-            ├─ [5] ALSA config              (XMOS as default device)
-            ├─ [6] non-free firmware        (Realtek, MediaTek, BT)
-            └─ [7] DKMS GPIO modules        (i2c/spi-gpio-custom)
+./compile.sh build USERPATCHES_PATH=... atomicpi-minimal
+  │
+  ├─ config-atomicpi-common.conf          BOARD=uefi-x86, RELEASE=trixie, BRANCH=current
+  ├─ config-atomicpi-minimal.conf         BUILD_MINIMAL=yes, systemd-networkd, 3500 MB
+  │
+  ├─ extensions/atomicpi-profile.sh       post_aggregate_packages hook → packages injected
+  │
+  └─ customize-image.sh                   runs in chroot after packages installed
+       ├─ rsync /tmp/overlay/ /           static config files applied
+       ├─ systemctl enable (5 services)
+       ├─ SSH hardening
+       └─ DKMS: i2c-gpio-custom, spi-gpio-custom
+```
+
+### Overlay tree (files rsynced into image root)
+
+```
+overlay/etc/modprobe.d/blacklist-atomicpi.conf     dw_dmac blacklist
+overlay/etc/sysctl.d/99-atomicpi.conf              2 GB RAM tuning
+overlay/etc/udev/rules.d/99-atomicpi-gpio.rules    GPIO chip ownership
+overlay/etc/asound.conf                            XMOS as ALSA default
+overlay/etc/systemd/system/atomicpi-hold-xmos.service
+overlay/etc/systemd/system/atomicpi-hold-mic.service
+overlay/etc/systemd/system/atomicpi-firstboot.service
+overlay/etc/atomicpi/profile                       board identity
+overlay/usr/local/sbin/atomicpi-firstboot          validation script
 ```
 
 ---
@@ -48,88 +71,72 @@ armbian/build (cloned)
 ```
 Boot
  └─ atomicpi-hold-xmos.service
-      └─ GPIO 349: assert reset (0) → wait 0.1s → release (1)
+      └─ GPIO 349: assert reset (0) → 0.1s → release (1)
            └─ XMOS xCORE enumerates as USB Audio 2.0
-                └─ TI TAS5719 class-D amp receives I2S
+                └─ TI TAS5719 class-D amp
                      └─ Powered speaker outputs
-                          1.5 W/ch @ 5 V
-                          5.0 W/ch @ 12 V
-atomicpi-hold-mic.service (after XMOS)
+                          1.5 W/ch @ 5 V  |  5.0 W/ch @ 12 V
+
+atomicpi-hold-mic.service (Requires: hold-xmos)
  └─ GPIO 341 = 0  → microphone input selected
-```
 
-ALSA: `asound.conf` sets `hw:XMOS,0` as the `pcm.!default` device.  
-PulseAudio: `default-sink.pa` tries to prefer the XMOS USB sink.
-
----
-
-## File Inventory
-
-```
-build_atomicpi.sh                     Wrapper: clones Armbian + runs compile.sh
-armbian/config-atomicpi-minimal.conf  Armbian build vars (minimal image)
-armbian/config-atomicpi-server.conf   Armbian build vars (server image, more packages)
-armbian/userpatches/customize-image.sh  Atomic Pi hardware layer hook (7 steps)
-armbian/userpatches/packages/         Drop .deb files here for auto-install
-scripts/flash-usb.sh                  Write image to USB/SD (workstation)
-scripts/flash-emmc.sh                 Write image to eMMC (on the board)
-scripts/firstboot.sh                  Post-boot verification script
-.github/workflows/build-armbian.yml   GitHub Actions CI workflow
-docs/hardware.md                      Hardware reference
-docs/boot-notes.md                    UEFI, serial console, boot order notes
-docs/image-layout.md                  Partition layout and flash procedure
-docs/test-matrix.md                   Hardware verification checklist
+asound.conf: pcm.!default → hw:XMOS,0
 ```
 
 ---
 
-## Build Command
+## Build Profiles
 
-```bash
-# Full minimal image build
-./build_atomicpi.sh minimal
-
-# Server image (more packages)
-./build_atomicpi.sh server
-
-# Update Armbian build framework
-./build_atomicpi.sh --update-armbian
-```
-
-Armbian build requires Ubuntu Jammy (22.04) or Noble (24.04) as the host OS.
+| Profile | Size | Networking | Headers | Status |
+|---|---|---|---|---|
+| atomicpi-minimal | 3500 MB | systemd-networkd | No | **Build first** |
+| atomicpi-server | 6000 MB | NetworkManager | No | Build second |
+| atomicpi-dev | 9000 MB | NetworkManager | Yes | After server |
+| atomicpi-desktop | 11000 MB | NetworkManager | No | After headless proven |
 
 ---
 
-## Open Questions / Known Risks
+## v0.1 Milestone Criteria
 
-1. **XMOS card name in ALSA** — `asound.conf` references card name `"XMOS"`. Must verify with `aplay -l` on first live boot. If the XMOS enumerates under a different name, update `asound.conf` and note here.
+- [ ] Boots from USB
+- [ ] Boots from microSD
+- [ ] Installs to eMMC
+- [ ] Ethernet works
+- [ ] WiFi works
+- [ ] Bluetooth present
+- [ ] HDMI console works
+- [ ] XMOS service starts, GPIO 349 released
+- [ ] ALSA shows XMOS card
+- [ ] Audio plays through powered outputs
+- [ ] dw_dmac not loaded
+- [ ] Shutdown is clean (no hang)
+- [ ] Reboot is clean
+- [ ] USB 2/3 devices recognized
+- [ ] I2C tools detect BNO055
+- [ ] Thermal stays < 80°C at idle
+- [ ] DKMS modules survive `apt upgrade`
 
-2. **PulseAudio XMOS sink name** — `default-sink.pa` uses a guessed sink name (`XMOS xCORE USB Audio 2.0`). Verify with `pactl list sinks short` on first live boot.
+---
 
-3. **sysfs GPIO in newer kernels** — The `/sys/class/gpio/` interface is deprecated since kernel ~5.3 but still present in 6.x. If Armbian's `current` branch kernel removes it, the systemd services need to switch to `gpioset` (from `gpiod` package) or Python `gpiod` library.
+## Open Questions (pre-first-build)
 
-4. **Armbian linux-headers package name** — `PACKAGE_LIST_ADDITIONAL` in the server config uses `linux-headers-current-x86`. Verify this is the correct Armbian package name after first build (check `apt-cache search linux-headers` in a running image).
-
-5. **DKMS in-build cloning** — `customize-image.sh` clones from GitHub during the build. Armbian normally has network in chroot; if not, pre-clone the repos into `armbian/userpatches/packages/` and update the paths.
-
-6. **Network-boot priority after CMOS reset** — BIOS may default to PXE before eMMC. Document in boot-notes.md once confirmed.
+1. **XMOS card name** — `asound.conf` uses `"XMOS"`. Verify with `aplay -l` on first boot.
+2. **sysfs GPIO deprecation** — `/sys/class/gpio/` still present in kernel 6.x but deprecated. If it disappears, switch services to `gpioset` (gpiod package).
+3. **Armbian headers package name** — verify `linux-headers-current-x86` is correct with `dpkg -l | grep headers` in a running image.
+4. **BIOS PXE priority** — CMOS reset may put PXE above eMMC in boot order. Document after first hardware test.
+5. **Network in customize-image.sh chroot** — DKMS step git-clones from GitHub; verify Armbian provides network during chroot build.
 
 ---
 
 ## Stage Run Log
 
-*(Updated when build is executed)*
-
 ### Stage 1: Armbian base build
-
 *Not yet run.*
 
 ### Stage 2: customize-image.sh
-
 *Not yet run.*
 
 ### Stage 3: Flash and test
-
 *Not yet run.*
 
 ---
