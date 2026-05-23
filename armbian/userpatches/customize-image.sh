@@ -9,6 +9,13 @@
 
 set -euo pipefail
 
+# Armbian passes these as positional args (customize.sh:34), not env vars.
+RELEASE="${1:-}"
+LINUXFAMILY="${2:-}"
+BOARD="${3:-}"
+BUILD_DESKTOP="${4:-}"
+ARCH="${5:-}"
+
 echo ">>> Atomic Pi customize-image: start (${RELEASE} / ${BOARD})"
 
 # ── 1. Apply overlay ──────────────────────────────────────────────────────────
