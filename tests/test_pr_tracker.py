@@ -12,7 +12,10 @@ from pr_tracker import (
     cmd_add_motivation,
     cmd_add_pr,
     cmd_add_update,
+    cmd_amend_update,
     cmd_archive_motivation,
+    cmd_edit_motivation,
+    cmd_edit_pr,
     cmd_list_prs,
     cmd_report,
     cmd_set_pr_state,
@@ -70,6 +73,34 @@ class _SetState:
 class _ArchiveMotivation:
     def __init__(self, motivation_id):
         self.id = motivation_id
+
+
+class _EditPR:
+    def __init__(self, pr_id, **kwargs):
+        self.id = pr_id
+        self.cmd = "edit-pr"
+        self.title = kwargs.get("title")
+        self.pr_number = kwargs.get("pr_number")
+        self.branch = kwargs.get("branch")
+        self.commit_sha = kwargs.get("commit_sha")
+        self.notes = kwargs.get("notes")
+
+
+class _EditMotivation:
+    def __init__(self, motivation_id, **kwargs):
+        self.id = motivation_id
+        self.cmd = "edit-motivation"
+        self.title = kwargs.get("title")
+        self.detail = kwargs.get("detail")
+
+
+class _AmendUpdate:
+    def __init__(self, update_id, **kwargs):
+        self.id = update_id
+        self.cmd = "amend-update"
+        self.summary = kwargs.get("summary")
+        self.details = kwargs.get("details")
+        self.update_type = kwargs.get("update_type")
 
 
 class _ListPRs:
@@ -269,3 +300,122 @@ def test_report_json_empty_db(db, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["motivations"] == []
     assert data["pull_requests"] == []
+
+
+# ── State transition validation ───────────────────────────────────────────────
+
+def test_valid_transition_draft_to_open(db):
+    cmd_add_pr(db, _PR(state="draft"))
+    cmd_set_pr_state(db, _SetState(1, "open"))
+    row = db.execute("SELECT state FROM pull_requests WHERE id=1").fetchone()
+    assert row["state"] == "open"
+
+
+def test_valid_transition_open_to_merged(db):
+    cmd_add_pr(db, _PR(state="open"))
+    cmd_set_pr_state(db, _SetState(1, "merged"))
+    row = db.execute("SELECT state FROM pull_requests WHERE id=1").fetchone()
+    assert row["state"] == "merged"
+
+
+def test_invalid_transition_merged_is_terminal(db):
+    cmd_add_pr(db, _PR(state="open"))
+    cmd_set_pr_state(db, _SetState(1, "merged"))
+    with pytest.raises(SystemExit, match="terminal"):
+        cmd_set_pr_state(db, _SetState(1, "open"))
+
+
+def test_invalid_transition_draft_to_merged(db):
+    cmd_add_pr(db, _PR(state="draft"))
+    with pytest.raises(SystemExit, match="cannot transition"):
+        cmd_set_pr_state(db, _SetState(1, "merged"))
+
+
+def test_valid_transition_closed_to_open(db):
+    cmd_add_pr(db, _PR(state="open"))
+    cmd_set_pr_state(db, _SetState(1, "closed"))
+    cmd_set_pr_state(db, _SetState(1, "open"))
+    row = db.execute("SELECT state FROM pull_requests WHERE id=1").fetchone()
+    assert row["state"] == "open"
+
+
+# ── edit-pr ───────────────────────────────────────────────────────────────────
+
+def test_edit_pr_updates_notes(db):
+    cmd_add_pr(db, _PR("Original"))
+    cmd_edit_pr(db, _EditPR(1, notes="Updated notes"))
+    row = db.execute("SELECT notes FROM pull_requests WHERE id=1").fetchone()
+    assert row["notes"] == "Updated notes"
+
+
+def test_edit_pr_updates_multiple_fields(db):
+    cmd_add_pr(db, _PR("Old title"))
+    cmd_edit_pr(db, _EditPR(1, title="New title", branch="feature/x"))
+    row = db.execute("SELECT title, branch FROM pull_requests WHERE id=1").fetchone()
+    assert row["title"] == "New title"
+    assert row["branch"] == "feature/x"
+
+
+def test_edit_pr_no_fields_exits(db):
+    cmd_add_pr(db, _PR())
+    with pytest.raises(SystemExit, match="no fields"):
+        cmd_edit_pr(db, _EditPR(1))
+
+
+def test_edit_pr_not_found(db):
+    with pytest.raises(SystemExit, match="not found"):
+        cmd_edit_pr(db, _EditPR(999, notes="x"))
+
+
+# ── edit-motivation ───────────────────────────────────────────────────────────
+
+def test_edit_motivation_updates_title(db):
+    cmd_add_motivation(db, _M("Old", "D"))
+    cmd_edit_motivation(db, _EditMotivation(1, title="New"))
+    row = db.execute("SELECT title FROM motivations WHERE id=1").fetchone()
+    assert row["title"] == "New"
+
+
+def test_edit_motivation_updates_detail(db):
+    cmd_add_motivation(db, _M("T", "Old detail"))
+    cmd_edit_motivation(db, _EditMotivation(1, detail="New detail"))
+    row = db.execute("SELECT detail FROM motivations WHERE id=1").fetchone()
+    assert row["detail"] == "New detail"
+
+
+def test_edit_motivation_no_fields_exits(db):
+    cmd_add_motivation(db, _M())
+    with pytest.raises(SystemExit, match="no fields"):
+        cmd_edit_motivation(db, _EditMotivation(1))
+
+
+def test_edit_motivation_not_found(db):
+    with pytest.raises(SystemExit, match="not found"):
+        cmd_edit_motivation(db, _EditMotivation(999, title="x"))
+
+
+# ── amend-update ──────────────────────────────────────────────────────────────
+
+def test_amend_update_changes_summary(db):
+    cmd_add_update(db, _Update("Original"))
+    cmd_amend_update(db, _AmendUpdate(1, summary="Corrected"))
+    row = db.execute("SELECT summary FROM updates WHERE id=1").fetchone()
+    assert row["summary"] == "Corrected"
+
+
+def test_amend_update_changes_type(db):
+    cmd_add_update(db, _Update("Note", update_type="note"))
+    cmd_amend_update(db, _AmendUpdate(1, update_type="decision"))
+    row = db.execute("SELECT update_type FROM updates WHERE id=1").fetchone()
+    assert row["update_type"] == "decision"
+
+
+def test_amend_update_no_fields_exits(db):
+    cmd_add_update(db, _Update())
+    with pytest.raises(SystemExit, match="no fields"):
+        cmd_amend_update(db, _AmendUpdate(1))
+
+
+def test_amend_update_not_found(db):
+    with pytest.raises(SystemExit, match="not found"):
+        cmd_amend_update(db, _AmendUpdate(999, summary="x"))

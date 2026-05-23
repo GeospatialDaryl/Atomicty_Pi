@@ -114,6 +114,15 @@ def migrate(conn: sqlite3.Connection, *, verbose: bool = False) -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# merged is terminal — once merged a PR cannot transition to any other state.
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    "draft":  {"open", "closed"},
+    "open":   {"merged", "closed", "draft"},
+    "merged": set(),
+    "closed": {"open", "draft"},
+}
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -170,6 +179,12 @@ def cmd_add_pr(conn: sqlite3.Connection, args) -> None:
 
 def cmd_set_pr_state(conn: sqlite3.Connection, args) -> None:
     _require(conn, "pull_requests", args.id, "PR")
+    row = conn.execute("SELECT state FROM pull_requests WHERE id=?", (args.id,)).fetchone()
+    current = row["state"]
+    if args.state not in _VALID_TRANSITIONS[current]:
+        allowed = ", ".join(sorted(_VALID_TRANSITIONS[current])) or "none (terminal)"
+        sys.exit(f"Error: cannot transition PR from '{current}' to '{args.state}'. "
+                 f"Allowed: {allowed}.")
     closed_at = now() if args.state in ("merged", "closed") else None
     conn.execute(
         "UPDATE pull_requests SET state=?, closed_at=? WHERE id=?",
@@ -177,6 +192,51 @@ def cmd_set_pr_state(conn: sqlite3.Connection, args) -> None:
     )
     conn.commit()
     print(f"PR id={args.id} state → {args.state}")
+
+
+def cmd_edit_pr(conn: sqlite3.Connection, args) -> None:
+    _require(conn, "pull_requests", args.id, "PR")
+    fields = {k: v for k, v in vars(args).items()
+              if k not in ("id", "cmd") and v is not None}
+    if not fields:
+        sys.exit("Error: no fields to update — pass at least one option.")
+    sets = ", ".join(f"{k}=?" for k in fields)
+    conn.execute(
+        f"UPDATE pull_requests SET {sets} WHERE id=?",  # noqa: S608
+        (*fields.values(), args.id),
+    )
+    conn.commit()
+    print(f"PR id={args.id} updated: {', '.join(fields)}")
+
+
+def cmd_edit_motivation(conn: sqlite3.Connection, args) -> None:
+    _require(conn, "motivations", args.id, "motivation")
+    fields = {k: v for k, v in vars(args).items()
+              if k not in ("id", "cmd") and v is not None}
+    if not fields:
+        sys.exit("Error: no fields to update — pass at least one option.")
+    sets = ", ".join(f"{k}=?" for k in fields)
+    conn.execute(
+        f"UPDATE motivations SET {sets} WHERE id=?",  # noqa: S608
+        (*fields.values(), args.id),
+    )
+    conn.commit()
+    print(f"Motivation id={args.id} updated: {', '.join(fields)}")
+
+
+def cmd_amend_update(conn: sqlite3.Connection, args) -> None:
+    _require(conn, "updates", args.id, "update")
+    fields = {k: v for k, v in vars(args).items()
+              if k not in ("id", "cmd") and v is not None}
+    if not fields:
+        sys.exit("Error: no fields to update — pass at least one option.")
+    sets = ", ".join(f"{k}=?" for k in fields)
+    conn.execute(
+        f"UPDATE updates SET {sets} WHERE id=?",  # noqa: S608
+        (*fields.values(), args.id),
+    )
+    conn.commit()
+    print(f"Update id={args.id} amended: {', '.join(fields)}")
 
 
 def cmd_add_update(conn: sqlite3.Connection, args) -> None:
@@ -305,6 +365,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_sps.add_argument("id", type=int)
     p_sps.add_argument("state", choices=["draft", "open", "merged", "closed"])
 
+    p_epr = sub.add_parser("edit-pr", help="Edit fields on an existing PR")
+    p_epr.add_argument("id", type=int)
+    p_epr.add_argument("--title")
+    p_epr.add_argument("--pr-number", type=int)
+    p_epr.add_argument("--branch")
+    p_epr.add_argument("--commit-sha")
+    p_epr.add_argument("--notes")
+
+    p_em = sub.add_parser("edit-motivation", help="Edit title or detail of a motivation")
+    p_em.add_argument("id", type=int)
+    p_em.add_argument("--title")
+    p_em.add_argument("--detail")
+
+    p_au = sub.add_parser("amend-update", help="Amend an existing update entry")
+    p_au.add_argument("id", type=int)
+    p_au.add_argument("--summary")
+    p_au.add_argument("--details")
+    p_au.add_argument("--update-type", choices=["note", "decision", "risk", "test", "status"])
+
     p_u = sub.add_parser("add-update", help="Append a chronological update entry")
     p_u.add_argument("summary")
     p_u.add_argument("--pr-id", type=int)
@@ -335,9 +414,12 @@ def main() -> None:
             "init":               cmd_init,
             "add-motivation":     cmd_add_motivation,
             "archive-motivation": cmd_archive_motivation,
+            "edit-motivation":    cmd_edit_motivation,
             "add-pr":             cmd_add_pr,
             "set-pr-state":       cmd_set_pr_state,
+            "edit-pr":            cmd_edit_pr,
             "add-update":         cmd_add_update,
+            "amend-update":       cmd_amend_update,
             "list-prs":           cmd_list_prs,
             "report":             cmd_report,
         }
