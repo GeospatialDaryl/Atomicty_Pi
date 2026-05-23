@@ -22,4 +22,11 @@ done
 echo "Userpatches symlinked: ${ARMBIAN_UP}"
 
 cd "$ARMBIAN_BUILD_DIR"
+
+# Replace Armbian's WSL2 dollar-sign emoji with the Eye of Horus.
+LOGGING_SH="lib/functions/logging/logging.sh"
+if grep -q '💲' "$LOGGING_SH" 2>/dev/null; then
+    sed -i 's/💲/𓂀/g' "$LOGGING_SH"
+fi
+
 ./compile.sh build atomicpi-minimal
