@@ -1,16 +1,14 @@
 [Unit]
-Description=Atomic Pi — set XMOS microphone input (GPIO 341 = 0)
+Description=Atomic Pi — hold XMOS microphone input selected (gpiochip1 line 0)
 Documentation=https://www.digital-loggers.com/api_faqs.html
 After=atomicpi-hold-xmos.service
 Requires=atomicpi-hold-xmos.service
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStartPre=/bin/sh -c 'echo 341 > /sys/class/gpio/export 2>/dev/null || true'
-ExecStartPre=/bin/sh -c 'echo out > /sys/class/gpio/gpio341/direction'
-ExecStart=/bin/sh    -c 'echo 0 > /sys/class/gpio/gpio341/value'
-ExecStop=/bin/sh     -c 'echo 341 > /sys/class/gpio/unexport 2>/dev/null || true'
+Type=simple
+ExecStart=/usr/bin/gpioset --hold gpiochip1/0=0
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target

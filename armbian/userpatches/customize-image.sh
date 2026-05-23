@@ -31,6 +31,7 @@ fi
 
 # ── 2. Set permissions ────────────────────────────────────────────────────────
 chmod 755 /usr/local/sbin/atomicpi-firstboot
+chmod 755 /usr/local/sbin/atomicpi-xmos-reset
 echo ">>> [2] Permissions set"
 
 # ── 3. Enable systemd services ────────────────────────────────────────────────

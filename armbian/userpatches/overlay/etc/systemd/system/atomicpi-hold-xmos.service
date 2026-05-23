@@ -5,14 +5,10 @@ After=sysinit.target local-fs.target
 Before=sound.target pulseaudio.service pipewire.service
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStartPre=/bin/sh -c 'echo 349 > /sys/class/gpio/export 2>/dev/null || true'
-ExecStartPre=/bin/sh -c 'echo out > /sys/class/gpio/gpio349/direction'
-ExecStartPre=/bin/sh -c 'echo 0 > /sys/class/gpio/gpio349/value'
-ExecStartPre=/bin/sh -c 'sleep 0.1'
-ExecStart=/bin/sh    -c 'echo 1 > /sys/class/gpio/gpio349/value'
-ExecStop=/bin/sh     -c 'echo 349 > /sys/class/gpio/unexport 2>/dev/null || true'
+Type=simple
+ExecStart=/usr/local/sbin/atomicpi-xmos-reset
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target

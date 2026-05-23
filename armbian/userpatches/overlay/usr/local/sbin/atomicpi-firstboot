@@ -26,11 +26,10 @@ else
     fail "atomicpi-hold-xmos.service not active"
 fi
 
-if [[ -f /sys/class/gpio/gpio349/value ]] && \
-   [[ "$(cat /sys/class/gpio/gpio349/value)" == "1" ]]; then
-    ok "GPIO 349 (XMOS_RESET) released"
+if gpioget gpiochip1/8 2>/dev/null | grep -qx '1'; then
+    ok "GPIO 349 (gpiochip1/8, XMOS_RESET) released"
 else
-    fail "GPIO 349 not released — XMOS may not be running"
+    fail "GPIO 349 (gpiochip1/8) not released — XMOS may not be running"
 fi
 
 if aplay -l 2>/dev/null | grep -qi "xmos"; then

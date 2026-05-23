@@ -18,6 +18,7 @@ function post_aggregate_packages__atomicpi_add_packages() {
     # Hardware / bus tools
     PACKAGE_LIST_ADDITIONAL+=" \
         i2c-tools alsa-utils \
+        gpiod \
         dkms build-essential"
 
     # Non-free firmware: Realtek RTL8111G, MediaTek RT5572 WiFi, misc BT

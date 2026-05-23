@@ -34,10 +34,23 @@ XMOS xCORE (USB Audio 2.0) ──I2S──► TI TAS5719 class-D amp ──► P
 
 ## GPIO reference (audio-relevant)
 
-| sysfs # | gpiochip | Pin | Signal | Direction | Notes |
-|---|---|---|---|---|---|
-| 349 | gpiochip1 | 8 | XMOS_RESET | Output | 0=reset, 1=run |
-| 341 | gpiochip1 | ? | AU_MIC_SEL | Output | 0=mic, 1=loopback |
+gpiochip1 base = 341 (derived: sysfs 349 − line 8 = 341).
+
+| sysfs # | gpiochip | Line | Signal | Direction | libgpiod | Notes |
+|---|---|---|---|---|---|---|
+| 349 | gpiochip1 | 8 | XMOS_RESET | Output | `gpiochip1/8` | 0=reset, 1=run |
+| 341 | gpiochip1 | 0 | AU_MIC_SEL | Output | `gpiochip1/0` | 0=mic, 1=loopback — **verify on hardware** |
+
+Verify on a running board:
+```bash
+gpiodetect                  # list chips and bases
+gpioinfo gpiochip1          # list all lines with names
+gpioget gpiochip1/8         # read XMOS_RESET (should be 1)
+```
+
+> **libgpiod v2 required.** Debian Trixie ships `gpiod 2.2.1`. The services use
+> `gpioset --hold` (hold line while process runs) and `gpioset --hold-period`
+> (timed pulse). These flags are not available in libgpiod v1.
 
 ## I2C / SPI
 

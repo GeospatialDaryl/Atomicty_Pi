@@ -88,8 +88,9 @@ cat /sys/class/thermal/thermal_zone*/temp   # divide by 1000 for °C
 ### GPIO
 ```bash
 gpiodetect
-gpioinfo gpiochip1 | grep -E "line 8|line 0"
-# GPIO 349 = gpiochip1 line 8 (XMOS_RESET, should read 1 = running)
+gpioinfo gpiochip1              # lists all lines; verify base=341
+gpioget gpiochip1/8             # XMOS_RESET — should print "1"
+gpioget gpiochip1/0             # AU_MIC_SEL — should print "0"
 ```
 
 ---

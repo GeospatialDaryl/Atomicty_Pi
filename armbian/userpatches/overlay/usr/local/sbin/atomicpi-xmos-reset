@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -eu
+# Assert XMOS xCORE reset (gpiochip1 line 8) for 100 ms, then hold released.
+#
+# libgpiod v2 behaviour: gpioset drives the line for --hold-period then exits
+# cleanly (line returns to input). exec into the second gpioset holds the line
+# HIGH for the lifetime of the service process (released on SIGTERM at stop).
+#
+# GPIO mapping: sysfs 349 = gpiochip1 line 8 (gpiochip1 base = 341).
+# Verify with: gpiodetect && gpioinfo gpiochip1
+gpioset --hold-period 0.1 gpiochip1/8=0
+exec gpioset --hold gpiochip1/8=1
