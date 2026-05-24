@@ -444,28 +444,6 @@ QEMU/OVMF and checks for a login prompt within 180 seconds.
 
 ---
 
-## Contributing to Armbian Upstream
-
-This project is structured so that the board config can be submitted to
-Armbian as a Community Supported board (`atomic-pi.csc`).
-
-**Scope of the upstream PR:** only `config/boards/atomic-pi.csc`.
-Everything else (audio services, DKMS modules, ALSA config) stays in this
-userpatches repo — it is Atomic Pi-specific, not Armbian's responsibility.
-
-**Before opening the PR:**
-
-1. Confirm a successful hardware boot.
-2. Run `armbianmonitor -u` on the booted board and save the URL.
-3. Capture the serial console boot log (see `docs/hardware-boot-evidence.md`).
-4. Fill in the test matrix (see `docs/test-matrix.md`).
-
-The upstream board config file will declare `BOARD_VENDOR`, `BOARDFAMILY`,
-`KERNEL_TARGET`, `SERIALCON`, and CSC-tier CLI/desktop targets. See
-`armbian/atomic-pi.conf` for the current draft.
-
-A full PR description template is at `docs/armbian-pr.md` (pending hardware
-confirmation).
 
 ---
 
